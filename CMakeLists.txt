@@ -22,6 +22,7 @@ set(CMAKE_ASM_FLAGS "-mcpu=cortex-m0plus -mthumb -x assembler-with-cpp"         
 set(APP_SOURCES
     Src/main.c
     Src/stm32g0xx_it.c
+    Src/retarget.c
     ${SYSTEM_C}
     ${STARTUP}
 
@@ -37,6 +38,7 @@ set(APP_SOURCES
     ${HAL_SRC}/stm32g0xx_hal_pwr_ex.c
     ${HAL_SRC}/stm32g0xx_hal_cortex.c
     ${HAL_SRC}/stm32g0xx_hal_dma.c
+    ${HAL_SRC}/stm32g0xx_hal_uart.c
 )
 
 # ── Executable ───────────────────────────────────────────────────────────────
@@ -62,7 +64,7 @@ target_link_options(${PROJECT_NAME}.elf PRIVATE
     ${CPU_FLAGS}
     -T${LINKER_SCRIPT}
     -specs=nano.specs
-    -lc -lm -lnosys
+    -lc -lm
     -Wl,-Map=${PROJECT_NAME}.map,--cref
     -Wl,--gc-sections
     -Wl,--print-memory-usage

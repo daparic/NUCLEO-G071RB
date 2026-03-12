@@ -13,6 +13,7 @@ extern "C" {
 #endif
 
 #include "stm32g0xx_hal.h"
+#include <stdio.h>
 
 /* LED4 = PA5 (green LED on NUCLEO-G071RB) */
 #define LED4_PIN            GPIO_PIN_5
@@ -21,6 +22,9 @@ extern "C" {
 /* USER button = PC13 */
 #define USER_BUTTON_PIN     GPIO_PIN_13
 #define USER_BUTTON_PORT    GPIOC
+
+/* USART2 handle — defined in main.c, used by retarget.c */
+extern UART_HandleTypeDef huart2;
 
 void Error_Handler(void);
 

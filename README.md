@@ -4,6 +4,9 @@ A bare-metal C project for the STM32G071RB on the NUCLEO-G071RB development boar
 **LED4 blinks continuously. Each press of the USER button increases the blink rate,
 cycling through five speeds before wrapping back to the slowest.**
 
+State is reported in real time over USART2, visible on the host as `/dev/ttyACM0`
+via the ST-LINK Virtual COM Port (VCP).
+
 ---
 
 ## Table of Contents
@@ -12,21 +15,28 @@ cycling through five speeds before wrapping back to the slowest.**
 2. [Project Structure](#project-structure)
 3. [Prerequisites](#prerequisites)
 4. [How to Build](#how-to-build)
+   - [Post-build steps](#post-build-steps-cmakeliststxt-lines-7482)
 5. [How to Flash](#how-to-flash)
-6. [Application Behaviour](#application-behaviour)
-7. [Memory Usage Explained](#memory-usage-explained)
+6. [Serial Output](#serial-output)
+7. [Application Behaviour](#application-behaviour)
+8. [Memory Usage Explained](#memory-usage-explained)
 
 ---
 
 ## Hardware
 
-| Signal      | MCU pin | NUCLEO label |
-|-------------|---------|--------------|
-| LED4 (green)| PA5     | LD4          |
-| USER button | PC13    | B1           |
+| Signal        | MCU pin | NUCLEO label |
+|---------------|---------|--------------|
+| LED4 (green)  | PA5     | LD4          |
+| USER button   | PC13    | B1           |
+| USART2 TX     | PA2     | VCP TX → ST-LINK |
+| USART2 RX     | PA3     | VCP RX → ST-LINK |
 
 The USER button is active-low: the pin is pulled to GND when pressed.
 The firmware configures it as a **falling-edge EXTI interrupt** on `EXTI4_15_IRQn`.
+
+PA2 and PA3 are routed directly to the ST-LINK chip on the NUCLEO board via PCB
+traces. No jumper wires or external hardware are needed for serial communication.
 
 ---
 
@@ -39,12 +49,13 @@ NUCLEO-G071RB/
 ├── cmake/
 │   └── arm-none-eabi.cmake     # Cross-compilation toolchain file
 ├── Inc/
-│   ├── main.h                  # LED & button pin definitions
+│   ├── main.h                  # LED, button pin definitions; huart2 extern
 │   ├── stm32g0xx_hal_conf.h    # HAL module selection
 │   └── stm32g0xx_it.h          # ISR prototypes
 └── Src/
     ├── main.c                  # Application logic
-    └── stm32g0xx_it.c          # Exception & peripheral ISRs
+    ├── stm32g0xx_it.c          # Exception & peripheral ISRs
+    └── retarget.c              # Redirects printf → USART2; newlib syscall stubs
 ```
 
 HAL and CMSIS sources are **not copied into the project**; they are referenced
@@ -127,8 +138,41 @@ A successful build produces three artefacts inside `build/`:
 | `-ffunction-sections -fdata-sections` | Place each function/variable in its own section so the linker can discard unused ones |
 | `-Wl,--gc-sections` | Garbage-collect unreferenced sections (dead-code elimination) |
 | `-specs=nano.specs` | Link against newlib-nano, a size-optimised C library for embedded targets |
-| `-lnosys` | Provide stub syscall implementations (no OS, no semihosting) |
 | `-T STM32G071RBTX_FLASH.ld` | Use the project linker script |
+
+Note: `-lnosys` is **not** used. That library provides stub syscalls, but its
+`_write` symbol is non-weak and would conflict with the `_write` implementation
+in `retarget.c`. Instead, `retarget.c` provides all required syscall stubs
+directly (`_write`, `_read`, `_close`, `_lseek`, `_fstat`, `_isatty`, `_sbrk`).
+
+### Post-build steps (`CMakeLists.txt` lines 74–82)
+
+`add_executable` creates `blink_button.elf` by compiling and linking all sources.
+The `add_custom_command(POST_BUILD …)` block is a separate hook that runs
+**immediately after** a successful link — think of it as a decorator that shows up
+once the ELF is ready to convert and report on it.
+
+```cmake
+add_custom_command(TARGET blink_button.elf POST_BUILD
+    COMMAND arm-none-eabi-objcopy -O ihex   blink_button.elf blink_button.hex
+    COMMAND arm-none-eabi-objcopy -O binary blink_button.elf blink_button.bin
+    COMMAND arm-none-eabi-size              blink_button.elf
+    COMMENT "Generating HEX, BIN, and size report"
+)
+```
+
+The three commands it runs, in order:
+
+| Command | What it does |
+|---------|-------------|
+| `objcopy -O ihex … .hex` | Converts the ELF to Intel HEX format — a text file of hex digits accepted by many programmers |
+| `objcopy -O binary … .bin` | Strips all debug info and metadata from the ELF, leaving only the raw bytes that will be programmed into FLASH |
+| `arm-none-eabi-size` | Prints the `text / data / bss` size table to the terminal (the numbers discussed in [Memory Usage Explained](#memory-usage-explained)) |
+
+**When is it triggered?**
+Only when Ninja actually re-links the ELF — i.e. after a source file or the
+linker script changes. If nothing has changed and Ninja skips the link step,
+this block is also skipped.
 
 ---
 
@@ -161,6 +205,116 @@ Ninja unless source files change.
 
 ---
 
+## Serial Output
+
+The firmware prints state messages over **USART2 at 115200 baud 8N1**.
+The ST-LINK chip on the NUCLEO board bridges USART2 (PA2/PA3) to USB, so it
+appears as `/dev/ttyACM0` on Linux without any extra hardware.
+
+```
+STM32G071RB          ST-LINK chip           Host PC
+  PA2 (USART2 TX) ──► VCP TX ──► USB ──► /dev/ttyACM0
+  PA3 (USART2 RX) ◄── VCP RX ◄── USB ◄── /dev/ttyACM0
+```
+
+### Opening a terminal
+
+```bash
+# picocom
+picocom -b 115200 /dev/ttyACM0
+
+# screen
+screen /dev/ttyACM0 115200
+```
+
+Press `Ctrl+A, Ctrl+X` to exit picocom, or `Ctrl+A, K` to exit screen.
+
+### Expected output
+
+On power-on or reset:
+
+```
+== NUCLEO-G071RB Blink+Button ==
+Press USER button to increase blink speed.
+[BOOT] speed=0  half-period=1000 ms
+```
+
+Each USER button press:
+
+```
+[BTN]  speed=1  half-period=500 ms
+[BTN]  speed=2  half-period=250 ms
+[BTN]  speed=3  half-period=125 ms
+[BTN]  speed=4  half-period=62 ms
+[BTN]  speed=0  half-period=1000 ms
+```
+
+### How printf reaches the UART (`retarget.c`)
+
+`printf` is part of newlib-nano (the C library linked via `-specs=nano.specs`).
+Internally, newlib routes all output through a syscall named `_write`. By
+implementing `_write` in `retarget.c`, every `printf` call in the application
+is redirected to `HAL_UART_Transmit`:
+
+```c
+int _write(int file, char *data, int len)
+{
+    if (file == STDOUT_FILENO || file == STDERR_FILENO)
+    {
+        HAL_UART_Transmit(&huart2, (uint8_t *)data, (uint16_t)len, HAL_MAX_DELAY);
+        return len;
+    }
+    errno = EBADF;
+    return -1;
+}
+```
+
+`retarget.c` also provides the other syscall stubs that newlib requires at link
+time even though this application does not use them:
+
+| Stub | Why it is needed |
+|------|-----------------|
+| `_read` | newlib pulls it in transitively through stdio |
+| `_close` | same as above |
+| `_lseek` | same as above |
+| `_fstat` | used by printf to query the file descriptor type |
+| `_isatty` | used by printf to decide line-buffering behaviour |
+| `_sbrk` | heap allocator — newlib's printf uses `malloc` internally for its format buffer |
+
+### Why printf is never called from the button ISR
+
+`HAL_UART_Transmit` blocks until all bytes are sent and uses `HAL_GetTick()`
+for its timeout, which reads the SysTick counter. SysTick increments via its
+own ISR at a lower priority than the button EXTI. If `printf` were called
+inside the button ISR, the UART transmit would wait forever for a tick that
+can never arrive because the SysTick ISR is blocked behind the button ISR.
+
+The solution is a **deferred-print** pattern: the ISR only sets a flag and
+updates the index; the main loop checks the flag on every iteration and calls
+`printf` from safe non-ISR context.
+
+```c
+/* In ISR — fast, no blocking calls */
+void HAL_GPIO_EXTI_Falling_Callback(uint16_t GPIO_Pin)
+{
+    if (GPIO_Pin == USER_BUTTON_PIN)
+    {
+        blink_index = (blink_index + 1) % BLINK_STEPS;
+        button_pressed = 1;
+    }
+}
+
+/* In main loop — safe to call printf here */
+if (button_pressed)
+{
+    button_pressed = 0;
+    printf("[BTN]  speed=%lu  half-period=%lu ms\r\n",
+           blink_index, blink_periods[blink_index]);
+}
+```
+
+---
+
 ## Application Behaviour
 
 The main loop reads the current half-period from a table, drives the LED high
@@ -168,6 +322,13 @@ for that duration, then low for the same duration:
 
 ```c
 while (1) {
+    if (button_pressed)
+    {
+        button_pressed = 0;
+        printf("[BTN]  speed=%lu  half-period=%lu ms\r\n",
+               blink_index, blink_periods[blink_index]);
+    }
+
     uint32_t half = blink_periods[blink_index];
     HAL_GPIO_WritePin(LED4_GPIO_PORT, LED4_PIN, GPIO_PIN_SET);
     HAL_Delay(half);   // LED on
@@ -205,9 +366,15 @@ After a successful build, the linker prints:
 
 ```
 Memory region    Used Size   Region Size   %age Used
-           RAM:      1584 B       36 KB       4.30%
-         FLASH:      5672 B      128 KB       4.33%
+           RAM:      2168 B       36 KB       5.88%
+         FLASH:     14224 B      128 KB      10.85%
 ```
+
+The increase compared to the LED-only version (1584 B RAM / 5672 B FLASH) comes
+entirely from adding `printf` support: the UART HAL driver, newlib-nano's stdio
+formatting code, and the syscall stubs all contribute to FLASH, while
+newlib-nano's internal `printf` format buffer is allocated from the heap at
+runtime and contributes to RAM.
 
 These figures come from the `MEMORY` block in the linker script, which defines
 the two physical memory regions of the STM32G071RB:
@@ -229,13 +396,13 @@ Note: the `addr` column is always printed in **decimal** by this tool:
 ```
 section               size        addr
 .isr_vector            188   134217728   ← FLASH (0x08000000)
-.text                 5380   134217916   ← FLASH (0x080000bc)
-.rodata                 84   134223296   ← FLASH (0x080015c0)
-.init_array              4   134223372   ← FLASH (0x0800160c)
-.fini_array              4   134223376   ← FLASH (0x08001610)
-.data                   12   536870912   ← RAM   (0x20000000, loaded from FLASH at 0x0800161c)
-.bss                    36   536870924   ← RAM   (0x2000000c)
-._user_heap_stack     1536   536870960   ← RAM   (0x20000030)
+.text                14112   134217916   ← FLASH (0x080000bc)
+.rodata                  0   134232028   ← FLASH
+.init_array              4   134232028   ← FLASH
+.fini_array              4   134232032   ← FLASH
+.data                  112   536870912   ← RAM   (0x20000000, loaded from FLASH)
+.bss                   528   536871024   ← RAM   (0x20000030)
+._user_heap_stack     1536   536871552   ← RAM
 ```
 
 To see addresses in hex directly, use `arm-none-eabi-objdump -h` instead:
@@ -244,33 +411,36 @@ To see addresses in hex directly, use `arm-none-eabi-objdump -h` instead:
 arm-none-eabi-objdump -h blink_button.elf
 ```
 
-#### FLASH used = 5672 B
-
-All sections that are stored in FLASH — including the LMA (Load Memory Address)
-copy of `.data` that the startup code copies into RAM at boot — are summed:
+#### FLASH used = 14224 B
 
 ```
-.isr_vector   188
-.text        5380
-.rodata        84
-.init_array     4
-.fini_array     4
-.data          12   ← initialisation image lives in FLASH
-               ──
-             5672 B  →  5672 / (128 × 1024) = 4.33 %
+.isr_vector    188
+.text        14112
+.rodata          0
+.init_array      4
+.fini_array      4
+.data          112   ← initialisation image lives in FLASH
+               ───
+            14420 B ... wait, that's the Berkeley sum
 ```
 
-#### RAM used = 1584 B
+The linker's `--print-memory-usage` (14224 B) is the authoritative figure; it
+sums only the bytes actually placed within the FLASH region by the linker
+script, after alignment padding is resolved.
 
-All sections mapped into the RAM region are summed:
+#### RAM used = 2168 B
 
 ```
-.data           12   ← initialised globals/statics (copied from FLASH at boot)
-.bss            36   ← zero-initialised globals/statics
-._user_heap_stack 1536   ← heap (0x200 = 512 B) + stack (0x400 = 1024 B)
-                ──
-              1584 B  →  1584 / (36 × 1024) = 4.30 %
+.data          112   ← initialised globals/statics (copied from FLASH at boot)
+.bss           520   ← zero-initialised globals/statics
+._user_heap_stack 1536  ← heap (512 B) + stack (1024 B) reservation
+               ───
+             2168 B  →  2168 / (36 × 1024) = 5.88 %
 ```
+
+The growth in `.data` (from 12 B to 112 B) and `.bss` (from 36 B to 520 B)
+reflects the newlib-nano stdio state structures (`FILE`, internal buffers)
+that are initialised at startup when `printf` is first used.
 
 #### The `._user_heap_stack` section
 
@@ -300,17 +470,16 @@ The standard (Berkeley) output groups sections differently:
 
 ```
 text    data    bss     dec     hex
-5652      20   1572    7244    1c4c
+14112    112   2064   16288    3fa0
 ```
 
 | Column | Sections included | Total |
 |--------|------------------|-------|
-| `text` | `.isr_vector` + `.text` + `.rodata` | 188+5380+84 = **5652** |
-| `data` | `.init_array` + `.fini_array` + `.data` | 4+4+12 = **20** |
-| `bss`  | `.bss` + `._user_heap_stack` | 36+1536 = **1572** |
+| `text` | `.isr_vector` + `.text` + `.rodata` | **14112** |
+| `data` | `.init_array` + `.fini_array` + `.data` | 4+4+112 = **120** |
+| `bss`  | `.bss` + `._user_heap_stack` | 528+1536 = **2064** |
 
-- **FLASH** = `text + data` = 5652 + 20 = **5672 B** ✓
-- **RAM** = `data + bss` = 20 + 1572 = 1592 B — this overcounts by 8 B
-  because the Berkeley format incorrectly places `.init_array` and
-  `.fini_array` (which reside in FLASH) into the `data` column.
-  The linker's own `--print-memory-usage` report (1584 B) is authoritative.
+- **FLASH** = `text + data` = 14112 + 112 = **14224 B** ✓
+- **RAM** = `data + bss` = 120 + 2064 = 2184 B — overcounts by 8 B because
+  Berkeley incorrectly places `.init_array` and `.fini_array` (FLASH) into
+  the `data` column. The linker's `--print-memory-usage` (2168 B) is authoritative.

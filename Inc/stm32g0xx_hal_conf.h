@@ -16,6 +16,7 @@ extern "C" {
 #define HAL_MODULE_ENABLED
 #define HAL_GPIO_MODULE_ENABLED
 #define HAL_EXTI_MODULE_ENABLED
+#define HAL_UART_MODULE_ENABLED
 #define HAL_DMA_MODULE_ENABLED
 #define HAL_RCC_MODULE_ENABLED
 #define HAL_FLASH_MODULE_ENABLED
@@ -100,6 +101,9 @@ extern "C" {
 #endif
 #ifdef HAL_PWR_MODULE_ENABLED
 #include "stm32g0xx_hal_pwr.h"
+#endif
+#ifdef HAL_UART_MODULE_ENABLED
+#include "stm32g0xx_hal_uart.h"
 #endif
 
 /* ########################## Assert ######################################### */
