@@ -67,6 +67,9 @@ extern "C" {
 #if !defined(EXTERNAL_I2S1_CLOCK_VALUE)
 #define EXTERNAL_I2S1_CLOCK_VALUE    (48000UL)
 #endif
+#if !defined(EXTERNAL_I2S2_CLOCK_VALUE)
+#define EXTERNAL_I2S2_CLOCK_VALUE    (48000UL)
+#endif
 
 /* ########################## System Configuration ######################### */
 #define VDD_VALUE                   (3300UL)

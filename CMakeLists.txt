@@ -8,7 +8,7 @@ set(HAL_SRC  ${CUBE_FW}/Drivers/STM32G0xx_HAL_Driver/Src)
 set(HAL_INC  ${CUBE_FW}/Drivers/STM32G0xx_HAL_Driver/Inc)
 set(CMSIS_DEVICE_INC ${CUBE_FW}/Drivers/CMSIS/Device/ST/STM32G0xx/Include)
 set(CMSIS_CORE_INC   ${CUBE_FW}/Drivers/CMSIS/Include)
-set(STARTUP  ${CUBE_FW}/Drivers/CMSIS/Device/ST/STM32G0xx/Source/Templates/gcc/startup_stm32g071xx.s)
+set(STARTUP  ${CUBE_FW}/Drivers/CMSIS/Device/ST/STM32G0xx/Source/Templates/gcc/startup_stm32g0b1xx.s)
 set(SYSTEM_C ${CUBE_FW}/Drivers/CMSIS/Device/ST/STM32G0xx/Source/Templates/system_stm32g0xx.c)
 
 # ── MCU flags ────────────────────────────────────────────────────────────────
@@ -53,12 +53,12 @@ target_include_directories(${PROJECT_NAME}.elf PRIVATE
 )
 
 target_compile_definitions(${PROJECT_NAME}.elf PRIVATE
-    STM32G071xx
+    STM32G0B1xx
     USE_HAL_DRIVER
 )
 
 # ── Linker ───────────────────────────────────────────────────────────────────
-set(LINKER_SCRIPT ${CMAKE_SOURCE_DIR}/STM32G071RBTX_FLASH.ld)
+set(LINKER_SCRIPT ${CMAKE_SOURCE_DIR}/STM32G0B1RETX_FLASH.ld)
 
 target_link_options(${PROJECT_NAME}.elf PRIVATE
     ${CPU_FLAGS}

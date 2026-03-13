@@ -40,7 +40,7 @@ int main(void)
     USART2_Init();
     Button_EXTI_Init();
 
-    printf("\r\n== NUCLEO-G071RB Blink+Button ==\r\n");
+    printf("\r\n== NUCLEO-G0B1RE Blink+Button ==\r\n");
     printf("Press USER button to increase blink speed.\r\n");
     printf("[BOOT] speed=%lu  half-period=%lu ms\r\n",
            blink_index, blink_periods[blink_index]);

@@ -1,7 +1,7 @@
 /**
- * Linker script for STM32G071RBTx
- *   128K FLASH @ 0x08000000
- *    36K RAM   @ 0x20000000
+ * Linker script for STM32G0B1RETx
+ *   512K FLASH @ 0x08000000
+ *   144K RAM   @ 0x20000000
  */
 
 ENTRY(Reset_Handler)
@@ -13,8 +13,8 @@ _Min_Stack_Size = 0x400;
 
 MEMORY
 {
-  RAM   (xrw) : ORIGIN = 0x20000000, LENGTH = 36K
-  FLASH (rx)  : ORIGIN = 0x08000000, LENGTH = 128K
+  RAM   (xrw) : ORIGIN = 0x20000000, LENGTH = 144K
+  FLASH (rx)  : ORIGIN = 0x08000000, LENGTH = 512K
 }
 
 SECTIONS
