@@ -292,3 +292,77 @@ throughout the STM32 HAL. It allows every peripheral callback to have a safe
 do-nothing default while letting the application selectively override only the
 ones it cares about, without requiring any registration or function-pointer
 tables.
+
+---
+
+## Why `USART2` in `main.c` is required for `/dev/ttyACM0`
+
+> **Q: Must `huart2.Instance` always be `USART2` on a NUCLEO-G071RB?
+> Will `USART1` also work?**
+
+At the **firmware level**, `USART1` is a valid peripheral — changing
+`huart2.Instance = USART1` compiles and the peripheral functions correctly.
+The HAL is instance-agnostic; it operates on whichever register block you point
+it at.
+
+At the **board/hardware level**, `USART2` is the only instance whose TX/RX pins
+are physically connected to the ST-LINK chip. The NUCLEO-G071RB PCB has fixed
+copper traces:
+
+```
+MCU                    ST-LINK chip           Host
+PA2 (USART2_TX) ────── STLK_RX  ──────────── /dev/ttyACM0
+PA3 (USART2_RX) ────── STLK_TX
+```
+
+These traces are soldered — they cannot be rerouted in firmware. If you point
+the firmware at `USART1` and route its output to `PA9` (USART1_TX), the signal
+appears on header pin **CN10** instead. Nothing shows on `/dev/ttyACM0`. An
+external USB-to-UART adapter connected to `PA9` would be required to see it.
+
+| Layer | Constraint | Reason |
+|-------|-----------|--------|
+| Firmware | None — any USART instance compiles | HAL is peripheral-agnostic |
+| PCB / hardware | Must be `USART2` with PA2/PA3 | ST-LINK VCP traces are hardwired to those pins |
+
+Note that the variable name `huart2` is pure convention (Hungarian notation from
+STM32CubeIDE). The functionally critical line is `huart2.Instance = USART2` —
+that selects the actual peripheral register block. If you switched to `USART1`,
+the GPIO alternate function assignments would also need updating to match
+USART1's AF mapping (`PA9`/`PA10` with `GPIO_AF1_USART1`, or `PB6`/`PB7`).
+
+---
+
+## How many USART peripherals does the STM32G071RB have?
+
+> **Q: How many USARTs does the NUCLEO-G071RB have? Is it 3 (USART1, USART2,
+> USART3) or more?**
+
+The STM32G071RB has **4 full USARTs and 1 Low-Power UART**, confirmed directly
+from the CMSIS device header
+`Drivers/CMSIS/Device/ST/STM32G0xx/Include/stm32g071xx.h` in the STM32Cube FW
+pack:
+
+| Peripheral | Register base | IRQ |
+|-----------|--------------|-----|
+| USART1 | APB2 + 0x13800 | `USART1_IRQn` (dedicated) |
+| USART2 | APB1 + 0x04400 | `USART2_IRQn` (dedicated) |
+| USART3 | APB1 + 0x04800 | `USART3_4_LPUART1_IRQn` (shared) |
+| USART4 | APB1 + 0x04C00 | `USART3_4_LPUART1_IRQn` (shared) |
+| LPUART1 | APB1 + 0x08000 | `USART3_4_LPUART1_IRQn` (shared) |
+
+Three independent pieces of evidence confirm USART4 exists:
+
+1. **IRQ table** — the interrupt vector is explicitly named
+   `USART3_4_LPUART1_IRQn` and its comment reads
+   *"USART3, USART4 and LPUART1 global Interrupts"*.
+
+2. **RCC reset register** — a dedicated reset bit `USART4RST` exists in
+   `RCC_APBRSTR1` alongside `USART2RST`, `USART3RST`, and `LPUART1RST`.
+
+3. **RCC clock-enable register** — `USART4EN` has its own enable bit in
+   `RCC_APBENR1`.
+
+The common mistake of counting only 3 USARTs likely comes from the fact that
+USART3, USART4, and LPUART1 **share a single IRQ line** — they are easy to
+overlook when only reading the NVIC interrupt table at a glance.
