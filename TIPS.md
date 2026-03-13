@@ -160,6 +160,52 @@ line on the STM32G0).
 > to determine *which* of the 12 possible lines actually fired before invoking
 > the callback.
 
+> **Q: What would happen if a different parameter (not `USER_BUTTON_PIN`) were
+> passed to `HAL_GPIO_EXTI_IRQHandler()` on line 44?**
+>
+> Three things go wrong in sequence.
+>
+> The `GPIO_Pin` parameter is used as a **bitmask** directly against the EXTI
+> hardware pending registers:
+>
+> ```c
+> // stm32g0xx_hal_gpio.h
+> #define __HAL_GPIO_EXTI_GET_FALLING_IT(__EXTI_LINE__)   (EXTI->FPR1 & (__EXTI_LINE__))
+> #define __HAL_GPIO_EXTI_CLEAR_FALLING_IT(__EXTI_LINE__) (EXTI->FPR1 = (__EXTI_LINE__))
+> ```
+>
+> `GPIO_PIN_13 = (1 << 13) = 0x2000`. If a wrong pin such as `GPIO_PIN_4
+> = 0x0010` is passed instead:
+>
+> **1. The pending flag is never cleared.**
+> `EXTI->FPR1 & 0x0010` evaluates to 0 because pin 4 never fired. The `if`
+> block is never entered, so `EXTI->FPR1` bit 13 remains set.
+>
+> **2. The callback is never called.**
+> Because the wrong pending bit was checked, `HAL_GPIO_EXTI_Falling_Callback`
+> is never invoked. `blink_index` never advances.
+>
+> **3. The system locks up in an interrupt storm.**
+> The NVIC keeps the interrupt asserted for as long as the EXTI pending flag
+> is set. The instant `EXTI4_15_IRQHandler` returns, the CPU sees the flag
+> still set and immediately re-enters the ISR. The main loop never gets CPU
+> time again — the board appears completely frozen.
+>
+> ```
+> button pressed
+>   → EXTI4_15_IRQHandler entered
+>     → HAL_GPIO_EXTI_IRQHandler(WRONG_PIN)
+>       → checks wrong bit → 0 → no clear, no callback
+>   → ISR returns
+>   → NVIC: flag still set → re-enter ISR immediately
+>   → ISR returns
+>   → re-enter ISR ...  ← stuck here forever
+> ```
+>
+> The parameter is not just an identifier forwarded to the callback — it is the
+> bitmask used to both **check** and **clear** the hardware pending flag. It
+> must match the pin that actually triggered the interrupt.
+
 ---
 
 ### Step 4 — `HAL_GPIO_EXTI_IRQHandler` (`stm32g0xx_hal_gpio.c`)
