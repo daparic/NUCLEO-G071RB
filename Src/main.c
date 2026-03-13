@@ -1,7 +1,7 @@
 /**
  ******************************************************************************
  * @file    main.c
- * @brief   Blinking LED demo for NUCLEO-G071RB.
+ * @brief   Blinking LED demo for NUCLEO-G0B1RE.
  *
  * LED4 (PA5) blinks at a rate that increases each time the USER button
  * (PC13) is pressed.  The blink periods cycle through:
