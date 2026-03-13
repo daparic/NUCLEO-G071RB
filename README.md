@@ -1,6 +1,6 @@
-# NUCLEO-G071RB — Blink + Button Demo
+# NUCLEO-G0B1RE — Blink + Button Demo
 
-A bare-metal C project for the STM32G071RB on the NUCLEO-G071RB development board.
+A bare-metal C project for the STM32G0B1RE on the NUCLEO-G0B1RE development board.
 **LED4 blinks continuously. Each press of the USER button increases the blink rate,
 cycling through five speeds before wrapping back to the slowest.**
 
@@ -20,6 +20,7 @@ via the ST-LINK Virtual COM Port (VCP).
 6. [Serial Output](#serial-output)
 7. [Application Behaviour](#application-behaviour)
 8. [Memory Usage Explained](#memory-usage-explained)
+9. [Porting to a Different STM32G0 Target](#porting-to-a-different-stm32g0-target)
 
 ---
 
@@ -45,7 +46,8 @@ traces. No jumper wires or external hardware are needed for serial communication
 ```
 NUCLEO-G071RB/
 ├── CMakeLists.txt              # Top-level CMake build
-├── STM32G071RBTX_FLASH.ld      # Linker script (128 KB FLASH / 36 KB RAM)
+├── STM32G0B1RETX_FLASH.ld      # Linker script — active target (512 KB FLASH / 144 KB RAM)
+├── STM32G071RBTX_FLASH.ld      # Linker script — kept for reference (128 KB FLASH / 36 KB RAM)
 ├── cmake/
 │   └── arm-none-eabi.cmake     # Cross-compilation toolchain file
 ├── Inc/
@@ -92,7 +94,7 @@ The build references the following subdirectories from this pack:
 | HAL driver headers | `Drivers/STM32G0xx_HAL_Driver/Inc/` |
 | CMSIS device headers | `Drivers/CMSIS/Device/ST/STM32G0xx/Include/` |
 | CMSIS core headers | `Drivers/CMSIS/Include/` |
-| Startup file | `Drivers/CMSIS/Device/ST/STM32G0xx/Source/Templates/gcc/startup_stm32g071xx.s` |
+| Startup file | `Drivers/CMSIS/Device/ST/STM32G0xx/Source/Templates/gcc/startup_stm32g0b1xx.s` |
 | System init | `Drivers/CMSIS/Device/ST/STM32G0xx/Source/Templates/system_stm32g0xx.c` |
 
 ---
@@ -138,7 +140,7 @@ A successful build produces three artefacts inside `build/`:
 | `-ffunction-sections -fdata-sections` | Place each function/variable in its own section so the linker can discard unused ones |
 | `-Wl,--gc-sections` | Garbage-collect unreferenced sections (dead-code elimination) |
 | `-specs=nano.specs` | Link against newlib-nano, a size-optimised C library for embedded targets |
-| `-T STM32G071RBTX_FLASH.ld` | Use the project linker script |
+| `-T STM32G0B1RETX_FLASH.ld` | Use the project linker script |
 
 Note: `-lnosys` is **not** used. That library provides stub syscalls, but its
 `_write` symbol is non-weak and would conflict with the `_write` implementation
@@ -212,7 +214,7 @@ The ST-LINK chip on the NUCLEO board bridges USART2 (PA2/PA3) to USB, so it
 appears as `/dev/ttyACM0` on Linux without any extra hardware.
 
 ```
-STM32G071RB          ST-LINK chip           Host PC
+STM32G0B1RE          ST-LINK chip           Host PC
   PA2 (USART2 TX) ──► VCP TX ──► USB ──► /dev/ttyACM0
   PA3 (USART2 RX) ◄── VCP RX ◄── USB ◄── /dev/ttyACM0
 ```
@@ -234,7 +236,7 @@ Press `Ctrl+A, Ctrl+X` to exit picocom, or `Ctrl+A, K` to exit screen.
 On power-on or reset:
 
 ```
-== NUCLEO-G071RB Blink+Button ==
+== NUCLEO-G0B1RE Blink+Button ==
 Press USER button to increase blink speed.
 [BOOT] speed=0  half-period=1000 ms
 ```
@@ -366,8 +368,8 @@ After a successful build, the linker prints:
 
 ```
 Memory region    Used Size   Region Size   %age Used
-           RAM:      2168 B       36 KB       5.88%
-         FLASH:     14224 B      128 KB      10.85%
+           RAM:      2168 B      144 KB       1.47%
+         FLASH:     14684 B      512 KB       2.80%
 ```
 
 The increase compared to the LED-only version (1584 B RAM / 5672 B FLASH) comes
@@ -377,13 +379,13 @@ newlib-nano's internal `printf` format buffer is allocated from the heap at
 runtime and contributes to RAM.
 
 These figures come from the `MEMORY` block in the linker script, which defines
-the two physical memory regions of the STM32G071RB:
+the two physical memory regions of the STM32G0B1RE:
 
 ```ld
 MEMORY
 {
-  RAM   (xrw) : ORIGIN = 0x20000000, LENGTH = 36K
-  FLASH (rx)  : ORIGIN = 0x08000000, LENGTH = 128K
+  RAM   (xrw) : ORIGIN = 0x20000000, LENGTH = 144K
+  FLASH (rx)  : ORIGIN = 0x08000000, LENGTH = 512K
 }
 ```
 
@@ -396,13 +398,14 @@ Note: the `addr` column is always printed in **decimal** by this tool:
 ```
 section               size        addr
 .isr_vector            188   134217728   ← FLASH (0x08000000)
-.text                14112   134217916   ← FLASH (0x080000bc)
-.rodata                  0   134232028   ← FLASH
-.init_array              4   134232028   ← FLASH
-.fini_array              4   134232032   ← FLASH
-.data                  112   536870912   ← RAM   (0x20000000, loaded from FLASH)
-.bss                   528   536871024   ← RAM   (0x20000030)
-._user_heap_stack     1536   536871552   ← RAM
+.text                14024   134217916   ← FLASH (0x080000bc)
+.rodata                352   134231940   ← FLASH (0x080037c4)
+.ARM                     8   134232292   ← FLASH
+.init_array              4   134232300   ← FLASH
+.fini_array              4   134232304   ← FLASH
+.data                  104   536870912   ← RAM   (0x20000000, loaded from FLASH)
+.bss                   524   536871016   ← RAM   (0x20000068)
+._user_heap_stack     1540   536871540   ← RAM
 ```
 
 To see addresses in hex directly, use `arm-none-eabi-objdump -h` instead:
@@ -411,34 +414,37 @@ To see addresses in hex directly, use `arm-none-eabi-objdump -h` instead:
 arm-none-eabi-objdump -h blink_button.elf
 ```
 
-#### FLASH used = 14224 B
+#### FLASH used = 14684 B
+
+All sections stored in FLASH are summed, including the LMA copy of `.data`:
 
 ```
 .isr_vector    188
-.text        14112
-.rodata          0
+.text        14024
+.rodata        352
+.ARM             8
 .init_array      4
 .fini_array      4
-.data          112   ← initialisation image lives in FLASH
+.data          104   ← initialisation image lives in FLASH
                ───
-            14420 B ... wait, that's the Berkeley sum
+            14684 B  →  14684 / (512 × 1024) = 2.80 %
 ```
-
-The linker's `--print-memory-usage` (14224 B) is the authoritative figure; it
-sums only the bytes actually placed within the FLASH region by the linker
-script, after alignment padding is resolved.
 
 #### RAM used = 2168 B
 
 ```
-.data          112   ← initialised globals/statics (copied from FLASH at boot)
-.bss           520   ← zero-initialised globals/statics
-._user_heap_stack 1536  ← heap (512 B) + stack (1024 B) reservation
+.data          104   ← initialised globals/statics (copied from FLASH at boot)
+.bss           524   ← zero-initialised globals/statics
+._user_heap_stack 1540  ← 4 B alignment pad + heap (512 B) + stack (1024 B)
                ───
-             2168 B  →  2168 / (36 × 1024) = 5.88 %
+             2168 B  →  2168 / (144 × 1024) = 1.47 %
 ```
 
-The growth in `.data` (from 12 B to 112 B) and `.bss` (from 36 B to 520 B)
+The `._user_heap_stack` size is 1540 instead of the nominal 1536 (512+1024)
+because the linker aligns the section start to an 8-byte boundary, inserting
+4 bytes of padding after `.bss` ends at an unaligned address.
+
+The growth in `.data` (from 12 B to 104 B) and `.bss` (from 36 B to 524 B)
 reflects the newlib-nano stdio state structures (`FILE`, internal buffers)
 that are initialised at startup when `printf` is first used.
 
@@ -460,7 +466,7 @@ link time:
 ```
 
 If the total RAM consumption of `.data` + `.bss` + heap + stack would exceed
-36 KB, the linker raises a region overflow error at build time — a useful
+144 KB, the linker raises a region overflow error at build time — a useful
 static check that prevents stack/heap collisions from being discovered only at
 runtime.
 
@@ -470,16 +476,45 @@ The standard (Berkeley) output groups sections differently:
 
 ```
 text    data    bss     dec     hex
-14112    112   2064   16288    3fa0
+14572    112   2064   16748    416c
 ```
 
 | Column | Sections included | Total |
 |--------|------------------|-------|
-| `text` | `.isr_vector` + `.text` + `.rodata` | **14112** |
-| `data` | `.init_array` + `.fini_array` + `.data` | 4+4+112 = **120** |
-| `bss`  | `.bss` + `._user_heap_stack` | 528+1536 = **2064** |
+| `text` | `.isr_vector` + `.text` + `.rodata` + `.ARM` | 188+14024+352+8 = **14572** |
+| `data` | `.init_array` + `.fini_array` + `.data` | 4+4+104 = **112** |
+| `bss`  | `.bss` + `._user_heap_stack` | 524+1540 = **2064** |
 
-- **FLASH** = `text + data` = 14112 + 112 = **14224 B** ✓
-- **RAM** = `data + bss` = 120 + 2064 = 2184 B — overcounts by 8 B because
+- **FLASH** = `text + data` = 14572 + 112 = **14684 B** ✓
+- **RAM** = `data + bss` = 112 + 2064 = 2176 B — overcounts by 8 B because
   Berkeley incorrectly places `.init_array` and `.fini_array` (FLASH) into
   the `data` column. The linker's `--print-memory-usage` (2168 B) is authoritative.
+
+---
+
+## Porting to a Different STM32G0 Target
+
+This project was originally written for the **STM32G071RB** (NUCLEO-G071RB) and
+later ported to the **STM32G0B1RE** (NUCLEO-G0B1RE). Because both devices share
+the same STM32G0 HAL, CMSIS headers, Cortex-M0+ core, and identical NUCLEO pin
+assignments, the port required changes in only four places:
+
+| # | File | What changed | Why |
+|---|------|-------------|-----|
+| 1 | `CMakeLists.txt` | Startup file: `startup_stm32g071xx.s` → `startup_stm32g0b1xx.s` | Each device variant has its own interrupt vector table size and reset sequence baked into its startup file |
+| 2 | `CMakeLists.txt` | Compile definition: `STM32G071xx` → `STM32G0B1xx` | This symbol gates device-specific register maps and peripheral availability inside the CMSIS device header `stm32g0xx.h` |
+| 3 | `CMakeLists.txt` | Linker script: `STM32G071RBTX_FLASH.ld` → `STM32G0B1RETX_FLASH.ld` | Points the linker at the correct memory sizes for the new target |
+| 4 | `STM32G0B1RETX_FLASH.ld` | New file — FLASH 128K→512K, RAM 36K→144K | Reflects the larger memory on the G0B1RE |
+
+One additional change was discovered at compile time:
+
+| # | File | What changed | Why |
+|---|------|-------------|-----|
+| 5 | `Inc/stm32g0xx_hal_conf.h` | Added `EXTERNAL_I2S2_CLOCK_VALUE` | The G0B1RE has a second I2S peripheral; `stm32g0xx_hal_rcc_ex.c` references this constant when compiled with `STM32G0B1xx` defined, causing a build error if absent |
+
+All application source files (`main.c`, `stm32g0xx_it.c`, `retarget.c`) and all
+other headers were untouched. The LED pin (PA5), USER button pin (PC13), and
+USART2 VCP pins (PA2/PA3) are identical across all NUCLEO boards in the G0
+family with a 64-pin package.
+
+To switch back to the G071RB, revert items 1–3 in `CMakeLists.txt`.
